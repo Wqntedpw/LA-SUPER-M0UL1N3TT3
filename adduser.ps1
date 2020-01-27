@@ -32,7 +32,12 @@ $UsersPengingOU="Users"
 $GroupPendingOU="Groups"
 $ShareRepertory="C:\Partage\Users"
 
+# Vérification du module NTFSSecurity
+if (Get-Module NTFSSecurity) {Write-Host "Le module NTFSecurity est isntallé"} else {Install-Module -Name NTFSSecurity}
+
+# Création du fichier de logs
 new-item -Path $logpath -ItemType File -Name $logfile
+
 
 # Generation de caracteres
 function get-randomstring () {
@@ -58,7 +63,7 @@ function sendmail () {
     $mailpassword = Get-Content -Path $mailsecurestring | ConvertTo-SecureString
     $mailcredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $mailuser, $mailpassword
     $mailbody = “<p><img src='https://i.imgur.com/1UrGu3V.png?2'> <h2>Création de compte</h2> </p><br><p>Bonjour $displayname ! <br><br>Voici les informations sur votre compte BND:<br>Nom d'utilisateur: $samname <br>Mot de passe temporaire: $pass <br></p><p style='text-color: red;'>Un nouveau mot de passe vous sera demandé lors de votre première connexion</p>”
-
+                        <# VV! A CHANGER !VV #>
     Send-MailMessage -To “starrcsgo@gmail.com” -From $mailuser -Subject “Création de votre compte BND” -Body $mailbody -Credential $mailcredential -SmtpServer “ns.noroute.pw” -Port 587 -UseSsl -BodyAsHtml -Encoding UTF8
 }
 
@@ -75,6 +80,13 @@ function addusergroup () {
 function createrepertory () {
     if (-not (Get-Item -Path "${ShareRepertory}\${samname}")) {
         New-Item -ItemType Directory -Path "$ShareRepertory" -Name "$samname"
+        $acl = Get-Acl "${ShareRepertory}\${samname}"
+        $acl.SetOwner([System.Security.Principal.NTAccount]"NSA\$samname") <# DOMAINE EN DUR A MODIFIER #>
+        $acl.SetAccessRuleProtection($true,$true)
+        Remove-NTFSAccess -AccessRights "ReadAndExecute, Synchronize" -Account "Tout le monde" -Path "${ShareRepertory}\${samname}" -AccessType "allow" -AppliesTo ThisFolderSubfoldersAndFiles
+        #$everyone = New-Object system.security.AccessControl.FileSystemAccessRule("Tout le monde","Read",,,"Allow")
+        #$acl.RemoveAccessRuleAll($everyone)
+        $acl |Set-Acl
     }
 }
 
@@ -101,12 +113,18 @@ function adduserad () {
         }
 
         write-host "[DEBUG]" " Nom : $nom , Prenom : $prenom , OU : $ou , SAM : $samname , Pass : $pass"
+
         # Création de l'utilisateur 
         New-ADuser -surname $nom -name $displayname -SamAccountName $samname -UserPrincipalName ${samname}@${domain} -givenname $prenom -displayname $displayname -Path $ou -ChangePasswordAtLogon $true -PasswordNeverExpires $false -AccountPassword (ConvertTo-SecureString -AsPlainText $pass -Force) -Enabled $true
+        
         # Envoi du mail
-        sendmail $emailext
+        # sendmail $emailext
+
         # Ajout de l'utilisateur dans son groupe
         addusergroup
+
+        # Creation du repertoire personnel
+        createrepertory
      }
 }
 
