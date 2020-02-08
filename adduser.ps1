@@ -26,7 +26,10 @@ $csv = import-csv -path "C:\Users\Administrateur\Documents\users.csv" -delimiter
 $mailsecurestring = "C:\Users\Administrateur\Documents\mailpassword.xml"
 $logpath="C:\Users\Administrateur\Documents\"
 $logfile = "adduser-$(get-date -UFormat "%d-%m-%y_%H-%M-%S").log"
-$domain="nsa.local"
+$domainfqdn="nsa.local"
+$domain=$domainfqdn.Split(".")[0]
+$domainext=$domainfqdn.Split(".")[1]
+$domainpath=(-join ("DC=","$domain",",","DC=","$domainext"))
 $GlobalPendingOU="Pending"
 $UsersPengingOU="Users"
 $GroupPendingOU="Groups"
@@ -67,6 +70,13 @@ function sendmail () {
     Send-MailMessage -To “starrcsgo@gmail.com” -From $mailuser -Subject “Création de votre compte BND” -Body $mailbody -Credential $mailcredential -SmtpServer “ns.noroute.pw” -Port 587 -UseSsl -BodyAsHtml -Encoding UTF8
 }
 
+# Ajout-Creation de l'OU
+function adduserou () {
+    if (-not (Get-ADOrganizationalUnit -Filter "Name -like '$oushort'")) {
+            New-ADOrganizationalUnit -Name "$oushort" -Path "$domainpath"
+    }
+}
+
 # Ajout-Creation de groupe
 function addusergroup () {
     if (-not (Get-ADGroup -Filter "Name -eq '$group' -and GroupCategory -eq 'Security'")){
@@ -83,10 +93,12 @@ function createrepertory () {
         $acl = Get-Acl "${ShareRepertory}\${samname}"
         $acl.SetOwner([System.Security.Principal.NTAccount]"NSA\$samname") <# DOMAINE EN DUR A MODIFIER #>
         $acl.SetAccessRuleProtection($true,$true)
-        Remove-NTFSAccess -AccessRights "ReadAndExecute, Synchronize" -Account "Tout le monde" -Path "${ShareRepertory}\${samname}" -AccessType "allow" -AppliesTo ThisFolderSubfoldersAndFiles
         #$everyone = New-Object system.security.AccessControl.FileSystemAccessRule("Tout le monde","Read",,,"Allow")
         #$acl.RemoveAccessRuleAll($everyone)
         $acl |Set-Acl
+        Remove-NTFSAccess -AccessRights "ReadAndExecute, Synchronize" -Account "Tout le monde" -Path "${ShareRepertory}\${samname}" -AccessType "allow" -AppliesTo ThisFolderSubfoldersAndFiles
+        Add-NTFSAccess -Path "${ShareRepertory}\${samname}" -Account "NSA\$samname" -AccessRights FullControl
+
     }
 }
 
@@ -99,13 +111,14 @@ function adduserad () {
         $nom = $user.lastname
         $prenom = $user.firstname
         $ou = $user.ou
+        $oushort= $user.ou.Split("=")[1].Split(",")[0]
         $group = $user.group
         $emailext = $user.emailext
         $displayname = (-join ("$prenom"," ","$nom"))
         $samname = (-join ("$prenom",".","$nom")).ToLower()
 
         # Verif si un utilisateur existant n'a pas le meme nom
-        while (get-aduser -Filter "UserPrincipalName -eq '${samname}@${domain}' -or Samaccountname -eq '${samname}'") {
+        while (get-aduser -Filter "UserPrincipalName -eq '${samname}@${domain}' -or Samaccountname -eq '${samname}'"){
             write-host "[DEBUG]" "Le compte $samname existe"
             $r = get-randomstring 3 num
             $samname = (-join ("$samname","$r"))
@@ -115,10 +128,10 @@ function adduserad () {
         write-host "[DEBUG]" " Nom : $nom , Prenom : $prenom , OU : $ou , SAM : $samname , Pass : $pass"
 
         # Création de l'utilisateur 
-        New-ADuser -surname $nom -name $displayname -SamAccountName $samname -UserPrincipalName ${samname}@${domain} -givenname $prenom -displayname $displayname -Path $ou -ChangePasswordAtLogon $true -PasswordNeverExpires $false -AccountPassword (ConvertTo-SecureString -AsPlainText $pass -Force) -Enabled $true
+        New-ADuser -surname $nom -name $displayname -SamAccountName $samname -UserPrincipalName ${samname}@${domainfqdn} -givenname $prenom -displayname $displayname -Path $ou -ChangePasswordAtLogon $true -PasswordNeverExpires $false -AccountPassword (ConvertTo-SecureString -AsPlainText $pass -Force) -Enabled $true
         
         # Envoi du mail
-        # sendmail $emailext
+        sendmail $emailext
 
         # Ajout de l'utilisateur dans son groupe
         addusergroup
